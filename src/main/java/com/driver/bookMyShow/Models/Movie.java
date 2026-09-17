@@ -8,8 +8,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.ArrayList;
 import java.sql.Date;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -34,12 +34,13 @@ public class Movie {
 
     private Date releaseDate;
 
-    @Enumerated(value = EnumType.STRING)
+    @Enumerated(EnumType.STRING)
     private Genre genre;
 
-    @Enumerated(value = EnumType.STRING)
+    @Enumerated(EnumType.STRING)
     private Language language;
 
-    @OneToMany(mappedBy = "movie",cascade = CascadeType.ALL)
+    @Builder.Default
+    @OneToMany(mappedBy = "movie", cascade = CascadeType.ALL)
     private List<Show> shows = new ArrayList<>();
 }

@@ -206,15 +206,21 @@ Status: ✅ Completed
 
 ---
 
-## Phase 2 - Java 21 Migration
+## Phase 2 - Codebase Stabilization and Refactoring
 
-- Upgrade Project SDK
-- Upgrade Build Tooling
-- Spring Boot Upgrade
-- Lombok Upgrade
-- OpenAPI Upgrade
+- Replaced field injection with constructor injection
+- Added transactional boundaries to service operations
+- Removed unused repository dependencies
+- Externalized database and email configuration
+- Added standardized API success and error responses
+- Improved repository existence queries
+- Corrected HTTP status codes for GET endpoints
+- Prevented duplicate seat initialization
+- Added invalid and duplicate seat-request handling
+- Removed trailing commas from booked-seat values
+- Improved naming and corrected code-quality issues
 
-Status: 🚧 In Progress
+Status: ✅ Completed
 
 ---
 

@@ -35,9 +35,11 @@ public class Show {
     @JoinColumn
     private Theater theater;
 
+    @Builder.Default
     @OneToMany(mappedBy = "show", cascade = CascadeType.ALL)
     private List<ShowSeat> showSeatList = new ArrayList<>();
 
+    @Builder.Default
     @OneToMany(mappedBy = "show", cascade = CascadeType.ALL)
     private List<Ticket> ticketList = new ArrayList<>();
 }

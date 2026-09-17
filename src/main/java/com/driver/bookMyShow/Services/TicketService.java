@@ -9,138 +9,187 @@ import com.driver.bookMyShow.Models.Show;
 import com.driver.bookMyShow.Models.ShowSeat;
 import com.driver.bookMyShow.Models.Ticket;
 import com.driver.bookMyShow.Models.User;
-import com.driver.bookMyShow.Repositories.*;
+import com.driver.bookMyShow.Repositories.ShowRepository;
+import com.driver.bookMyShow.Repositories.TicketRepository;
+import com.driver.bookMyShow.Repositories.UserRepository;
 import com.driver.bookMyShow.Transformers.TicketTransformer;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class TicketService {
 
-    @Autowired
-    private TicketRepository ticketRepository;
+    private final TicketRepository ticketRepository;
+    private final ShowRepository showRepository;
+    private final UserRepository userRepository;
+    private final JavaMailSender mailSender;
+    private final String mailFrom;
 
-    @Autowired
-    private MovieRepository movieRepository;
+    public TicketService(
+            TicketRepository ticketRepository,
+            ShowRepository showRepository,
+            UserRepository userRepository,
+            JavaMailSender mailSender,
+            @Value("${app.mail.from}") String mailFrom
+    ) {
+        this.ticketRepository = ticketRepository;
+        this.showRepository = showRepository;
+        this.userRepository = userRepository;
+        this.mailSender = mailSender;
+        this.mailFrom = mailFrom;
+    }
 
-    @Autowired
-    private ShowRepository showRepository;
+    @Transactional
+    public TicketResponseDto ticketBooking(
+            TicketEntryDto ticketEntryDto
+    ) {
+        Show show = showRepository
+                .findById(ticketEntryDto.getShowId())
+                .orElseThrow(ShowDoesNotExists::new);
 
-    @Autowired
-    private UserRepository userRepository;
+        User user = userRepository
+                .findById(ticketEntryDto.getUserId())
+                .orElseThrow(UserDoesNotExists::new);
 
-    @Autowired
-    private TheaterRepository theaterRepository;
+        Set<String> requestedSeats =
+                normalizeRequestedSeats(ticketEntryDto.getRequestSeats());
 
-    @Autowired
-    private JavaMailSender mailSender;
+        int totalPrice = validateAndReserveSeats(
+                show.getShowSeatList(),
+                requestedSeats
+        );
 
-    public TicketResponseDto ticketBooking(TicketEntryDto ticketEntryDto) throws RequestedSeatAreNotAvailable, UserDoesNotExists, ShowDoesNotExists{
-        // check user present
-        Optional<Show> showOpt = showRepository.findById(ticketEntryDto.getShowId());
-        if(showOpt.isEmpty()) {
-            throw new ShowDoesNotExists();
-        }
+        String bookedSeats = String.join(",", requestedSeats);
 
-        //check show present
-        Optional<User> userOpt = userRepository.findById(ticketEntryDto.getUserId());
-        if(userOpt.isEmpty()) {
-            throw new UserDoesNotExists();
-        }
+        Ticket ticket = Ticket.builder()
+                .totalTicketsPrice(totalPrice)
+                .bookedSeats(bookedSeats)
+                .user(user)
+                .show(show)
+                .build();
 
-        User user = userOpt.get();
-        Show show = showOpt.get();
+        Ticket savedTicket = ticketRepository.save(ticket);
 
-        //check requested seat available
-        Boolean isSeatAvailable = isSeatAvailable(show.getShowSeatList(), ticketEntryDto.getRequestSeats());
-        if(!isSeatAvailable) {
+        user.getTicketList().add(savedTicket);
+        show.getTicketList().add(savedTicket);
+
+        TicketResponseDto response =
+                TicketTransformer.returnTicket(show, savedTicket);
+
+        /*
+         * Phase 2 keeps email sending synchronous.
+         * A later phase should publish an event and send the email
+         * only after the database transaction commits successfully.
+         */
+        sendMailToUser(user, show, bookedSeats);
+
+        return response;
+    }
+
+    private Set<String> normalizeRequestedSeats(
+            List<String> requestedSeats
+    ) {
+        if (requestedSeats == null || requestedSeats.isEmpty()) {
             throw new RequestedSeatAreNotAvailable();
         }
 
-        // count price
-        Integer getPriceAndAssignSeats = getPriceAndAssignSeats(show.getShowSeatList(),ticketEntryDto.getRequestSeats());
+        Set<String> normalizedSeats = new LinkedHashSet<>();
 
-        // change list to string
-        String seats = listToString(ticketEntryDto.getRequestSeats());
+        for (String seatNumber : requestedSeats) {
+            if (seatNumber == null || seatNumber.isBlank()) {
+                throw new RequestedSeatAreNotAvailable();
+            }
 
-        // create ticket entity and set all attribute
-        Ticket ticket = new Ticket();
-        ticket.setTotalTicketsPrice(getPriceAndAssignSeats);
-        ticket.setBookedSeats(seats);
+            normalizedSeats.add(
+                    seatNumber.trim().toUpperCase()
+            );
+        }
 
-        // setting foreign key variables
-        ticket.setUser(user);
-        ticket.setShow(show);
-
-        ticket = ticketRepository.save(ticket);
-
-        user.getTicketList().add(ticket);
-        show.getTicketList().add(ticket);
-        userRepository.save(user);
-        showRepository.save(show);
-
-        // write mail and send to user Id
-        sendMailToUser(user, show,seats);
-
-
-        // build Ticket Response Dto
-        return TicketTransformer.returnTicket(show, ticket);
+        return normalizedSeats;
     }
 
-    private void sendMailToUser(User user, Show show, String seats) {
-        String body = "Dear"+user.getName()+",\n\nI hope this email finds you well. \n" +
-                "I am writing to inform you that your ticket has been successfully booked. \n" +
-                "We are pleased to confirm that your preferred date and time and more details have been secured.\n \n" +
-                "Ticket Details:\n\n" +
-                "Booked seat No's: "+seats+"\n" +
-                "Movie Name: "+show.getMovie().getMovieName()+"\n" +
-                "Date: "+show.getDate()+"\n" +
-                "Time: "+show.getTime()+"\n" +
-                "Location: "+show.getTheater().getAddress()+"\n\n"+
-                "Enjoy the show !!";
+    private int validateAndReserveSeats(
+            List<ShowSeat> showSeats,
+            Set<String> requestedSeats
+    ) {
+        Map<String, ShowSeat> seatsByNumber = new HashMap<>();
+
+        for (ShowSeat showSeat : showSeats) {
+            seatsByNumber.put(
+                    showSeat.getSeatNo().toUpperCase(),
+                    showSeat
+            );
+        }
+
+        /*
+         * Validate every requested seat before changing availability.
+         * This avoids partially reserving seats when one requested
+         * seat is invalid or unavailable.
+         */
+        for (String requestedSeat : requestedSeats) {
+            ShowSeat showSeat = seatsByNumber.get(requestedSeat);
+
+            if (showSeat == null ||
+                    !Boolean.TRUE.equals(showSeat.getIsAvailable())) {
+                throw new RequestedSeatAreNotAvailable();
+            }
+        }
+
+        int totalPrice = 0;
+
+        for (String requestedSeat : requestedSeats) {
+            ShowSeat showSeat = seatsByNumber.get(requestedSeat);
+
+            totalPrice += showSeat.getPrice();
+            showSeat.setIsAvailable(Boolean.FALSE);
+        }
+
+        return totalPrice;
+    }
+
+    private void sendMailToUser(
+            User user,
+            Show show,
+            String seats
+    ) {
+        String body = """
+                Dear %s,
+
+                Your ticket has been successfully booked.
+
+                Ticket Details:
+
+                Booked seat numbers: %s
+                Movie name: %s
+                Date: %s
+                Time: %s
+                Location: %s
+
+                Enjoy the show!
+                """.formatted(
+                user.getName(),
+                seats,
+                show.getMovie().getMovieName(),
+                show.getDate(),
+                show.getTime(),
+                show.getTheater().getAddress()
+        );
 
         SimpleMailMessage message = new SimpleMailMessage();
-        message.setText(body);
-        message.setFrom("khanking001qwerty@gmail.com");
+        message.setFrom(mailFrom);
         message.setTo(user.getEmailId());
-        message.setSubject("Ticket Successfully Booked!");
+        message.setSubject("Ticket successfully booked");
+        message.setText(body);
+
         mailSender.send(message);
     }
-
-    private Boolean isSeatAvailable(List<ShowSeat> showSeatList, List<String> requestSeats) {
-        for(ShowSeat showSeat : showSeatList) {
-            String seatNo = showSeat.getSeatNo();
-            if(requestSeats.contains(seatNo)) {
-                if(!showSeat.getIsAvailable()) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    private Integer getPriceAndAssignSeats(List<ShowSeat> showSeatList, List<String> requestSeats) {
-        Integer totalAmount = 0;
-        for(ShowSeat showSeat : showSeatList) {
-            if(requestSeats.contains(showSeat.getSeatNo())) {
-                totalAmount += showSeat.getPrice();
-                showSeat.setIsAvailable(Boolean.FALSE);
-            }
-        }
-        return totalAmount;
-    }
-
-    private String listToString(List<String> requestSeats) {
-        StringBuilder sb = new StringBuilder();
-        for(String s : requestSeats) {
-            sb.append(s).append(",");
-        }
-        return sb.toString();
-    }
-
 }

@@ -2,39 +2,55 @@ package com.driver.bookMyShow.Controllers;
 
 import com.driver.bookMyShow.Dtos.RequestDtos.TheaterEntryDto;
 import com.driver.bookMyShow.Dtos.RequestDtos.TheaterSeatEntryDto;
+import com.driver.bookMyShow.Dtos.ResponseDtos.ApiResponse;
 import com.driver.bookMyShow.Services.TheaterService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/theater")
 public class TheaterController {
 
-    @Autowired
-    private TheaterService theaterService;
+    private final TheaterService theaterService;
+
+    public TheaterController(TheaterService theaterService) {
+        this.theaterService = theaterService;
+    }
 
     @PostMapping("/addNew")
-    public ResponseEntity<String> addTheater(@RequestBody TheaterEntryDto theaterEntryDto) {
+    public ResponseEntity<ApiResponse> addTheater(
+            @RequestBody TheaterEntryDto theaterEntryDto
+    ) {
         try {
-            String result = theaterService.addTheater(theaterEntryDto);
-            return new ResponseEntity<>(result, HttpStatus.CREATED);
-        } catch (Exception e) {
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+            String result =
+                    theaterService.addTheater(theaterEntryDto);
+
+            return ResponseEntity
+                    .status(HttpStatus.CREATED)
+                    .body(ApiResponse.of(result));
+        } catch (Exception exception) {
+            return ResponseEntity
+                    .badRequest()
+                    .body(ApiResponse.of(exception.getMessage()));
         }
     }
 
     @PostMapping("/addTheaterSeat")
-    public ResponseEntity<String> addTheaterSeat(@RequestBody TheaterSeatEntryDto entryDto) {
+    public ResponseEntity<ApiResponse> addTheaterSeat(
+            @RequestBody TheaterSeatEntryDto entryDto
+    ) {
         try {
-            String result = theaterService.addTheaterSeat(entryDto);
-            return new ResponseEntity<>(result, HttpStatus.CREATED);
-        } catch (Exception e) {
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+            String result =
+                    theaterService.addTheaterSeat(entryDto);
+
+            return ResponseEntity
+                    .status(HttpStatus.CREATED)
+                    .body(ApiResponse.of(result));
+        } catch (Exception exception) {
+            return ResponseEntity
+                    .badRequest()
+                    .body(ApiResponse.of(exception.getMessage()));
         }
     }
 }

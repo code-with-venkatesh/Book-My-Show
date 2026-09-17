@@ -26,9 +26,11 @@ public class Theater {
     @Column(unique = true)
     private String address;
 
+    @Builder.Default
     @OneToMany(mappedBy = "theater", cascade = CascadeType.ALL)
     private List<TheaterSeat> theaterSeatList = new ArrayList<>();
 
+    @Builder.Default
     @OneToMany(mappedBy = "theater", cascade = CascadeType.ALL)
     private List<Show> showList = new ArrayList<>();
 }

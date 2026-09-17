@@ -7,101 +7,128 @@ import com.driver.bookMyShow.Enums.SeatType;
 import com.driver.bookMyShow.Exceptions.MovieDoesNotExists;
 import com.driver.bookMyShow.Exceptions.ShowDoesNotExists;
 import com.driver.bookMyShow.Exceptions.TheaterDoesNotExists;
-import com.driver.bookMyShow.Models.*;
+import com.driver.bookMyShow.Models.Movie;
+import com.driver.bookMyShow.Models.Show;
+import com.driver.bookMyShow.Models.ShowSeat;
+import com.driver.bookMyShow.Models.Theater;
+import com.driver.bookMyShow.Models.TheaterSeat;
 import com.driver.bookMyShow.Repositories.MovieRepository;
 import com.driver.bookMyShow.Repositories.ShowRepository;
 import com.driver.bookMyShow.Repositories.TheaterRepository;
 import com.driver.bookMyShow.Transformers.ShowTransformer;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.Date;
 import java.sql.Time;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class ShowService {
 
-    @Autowired
-    private ShowRepository showRepository;
+    private final ShowRepository showRepository;
+    private final MovieRepository movieRepository;
+    private final TheaterRepository theaterRepository;
 
-    @Autowired
-    private MovieRepository movieRepository;
+    public ShowService(
+            ShowRepository showRepository,
+            MovieRepository movieRepository,
+            TheaterRepository theaterRepository
+    ) {
+        this.showRepository = showRepository;
+        this.movieRepository = movieRepository;
+        this.theaterRepository = theaterRepository;
+    }
 
-    @Autowired
-    private TheaterRepository theaterRepository;
+    @Transactional
+    public String addShow(ShowEntryDto showEntryDto) {
+        Movie movie = movieRepository
+                .findById(showEntryDto.getMovieId())
+                .orElseThrow(MovieDoesNotExists::new);
 
-    public String addShow(ShowEntryDto showEntryDto) throws MovieDoesNotExists, TheaterDoesNotExists{
+        Theater theater = theaterRepository
+                .findById(showEntryDto.getTheaterId())
+                .orElseThrow(TheaterDoesNotExists::new);
+
         Show show = ShowTransformer.showDtoToShow(showEntryDto);
-
-        Optional<Movie> movieOpt = movieRepository.findById(showEntryDto.getMovieId());
-        if(movieOpt.isEmpty()) {
-            throw new MovieDoesNotExists();
-        }
-        Optional<Theater> theaterOpt = theaterRepository.findById(showEntryDto.getTheaterId());
-        if(theaterOpt.isEmpty()) {
-            throw new TheaterDoesNotExists();
-        }
-
-        Theater theater = theaterOpt.get();
-        Movie movie = movieOpt.get();
 
         show.setMovie(movie);
         show.setTheater(theater);
-        show = showRepository.save(show);
+
+        showRepository.save(show);
 
         movie.getShows().add(show);
         theater.getShowList().add(show);
 
-        movieRepository.save(movie);
-        theaterRepository.save(theater);
-
-        return "Show has been added Successfully";
+        return "Show has been added successfully";
     }
 
-    public String associateShowSeats(ShowSeatEntryDto showSeatEntryDto) throws ShowDoesNotExists{
-        Optional<Show> showOpt = showRepository.findById(showSeatEntryDto.getShowId());
-        if(showOpt.isEmpty()) {
-            throw new ShowDoesNotExists();
+    @Transactional
+    public String associateShowSeats(ShowSeatEntryDto showSeatEntryDto) {
+        Show show = showRepository
+                .findById(showSeatEntryDto.getShowId())
+                .orElseThrow(ShowDoesNotExists::new);
+
+        /*
+         * Prevent duplicate show seats if this endpoint is called
+         * more than once for the same show.
+         */
+        if (!show.getShowSeatList().isEmpty()) {
+            throw new IllegalStateException(
+                    "Seats are already associated with this show"
+            );
         }
-        Show show = showOpt.get();
+
         Theater theater = show.getTheater();
+        List<TheaterSeat> theaterSeats = theater.getTheaterSeatList();
+        List<ShowSeat> showSeats = show.getShowSeatList();
 
-        List<TheaterSeat> theaterSeatList = theater.getTheaterSeatList();
-
-        List<ShowSeat> showSeatList = show.getShowSeatList();
-        for(TheaterSeat theaterSeat : theaterSeatList) {
+        for (TheaterSeat theaterSeat : theaterSeats) {
             ShowSeat showSeat = new ShowSeat();
+
             showSeat.setSeatNo(theaterSeat.getSeatNo());
             showSeat.setSeatType(theaterSeat.getSeatType());
-
-            if(showSeat.getSeatType().equals(SeatType.CLASSIC)) {
-                showSeat.setPrice((showSeatEntryDto.getPriceOfClassicSeat()));
-            } else {
-                showSeat.setPrice(showSeatEntryDto.getPriceOfPremiumSeat());
-            }
-
             showSeat.setShow(show);
             showSeat.setIsAvailable(Boolean.TRUE);
             showSeat.setIsFoodContains(Boolean.FALSE);
 
-            showSeatList.add(showSeat);
+            if (theaterSeat.getSeatType() == SeatType.CLASSIC) {
+                showSeat.setPrice(
+                        showSeatEntryDto.getPriceOfClassicSeat()
+                );
+            } else {
+                showSeat.setPrice(
+                        showSeatEntryDto.getPriceOfPremiumSeat()
+                );
+            }
+
+            showSeats.add(showSeat);
         }
+
         showRepository.save(show);
 
         return "Show seats have been associated successfully";
     }
 
+    @Transactional(readOnly = true)
     public List<Time> showTimingsOnDate(ShowTimingsDto showTimingsDto) {
-        Date date = showTimingsDto.getDate();
-        Integer theaterId = showTimingsDto.getTheaterId();
-        Integer movieId = showTimingsDto.getMovieId();
-        return showRepository.getShowTimingsOnDate(date, theaterId, movieId);
+        return showRepository.getShowTimingsOnDate(
+                showTimingsDto.getDate(),
+                showTimingsDto.getTheaterId(),
+                showTimingsDto.getMovieId()
+        );
     }
 
+    @Transactional(readOnly = true)
     public String movieHavingMostShows() {
         Integer movieId = showRepository.getMostShowsMovie();
-        return movieRepository.findById(movieId).get().getMovieName();
+
+        if (movieId == null) {
+            throw new MovieDoesNotExists();
+        }
+
+        return movieRepository
+                .findById(movieId)
+                .orElseThrow(MovieDoesNotExists::new)
+                .getMovieName();
     }
 }

@@ -9,41 +9,53 @@ import com.driver.bookMyShow.Models.User;
 import com.driver.bookMyShow.Repositories.UserRepository;
 import com.driver.bookMyShow.Transformers.TicketTransformer;
 import com.driver.bookMyShow.Transformers.UserTransformer;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class UserService {
 
-    @Autowired
-    UserRepository userRepository;
+    private final UserRepository userRepository;
 
-    public String addUser(UserEntryDto userEntryDto) throws UserAlreadyExistsWithEmail{
-        if(userRepository.findByEmailId(userEntryDto.getEmailId()) != null) {
-            throw new UserAlreadyExistsWithEmail();
-        }
-        User user = UserTransformer.userDtoToUser(userEntryDto);
-
-        userRepository.save(user);
-        return "User Saved Successfully";
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
     }
 
-    public List<TicketResponseDto> allTickets(Integer userId) throws UserDoesNotExists{
-        Optional<User> userOpt = userRepository.findById(userId);
-        if(userOpt.isEmpty()) {
-            throw new UserDoesNotExists();
+    @Transactional
+    public String addUser(UserEntryDto userEntryDto) {
+        if (userRepository.existsByEmailId(
+                userEntryDto.getEmailId()
+        )) {
+            throw new UserAlreadyExistsWithEmail();
         }
-        User user = userOpt.get();
-        List<Ticket> ticketList = user.getTicketList();
-        List<TicketResponseDto> ticketResponseDtos = new ArrayList<>();
-        for(Ticket ticket : ticketList) {
-            TicketResponseDto ticketResponseDto = TicketTransformer.returnTicket(ticket.getShow(), ticket);
-            ticketResponseDtos.add(ticketResponseDto);
+
+        User user = UserTransformer.userDtoToUser(userEntryDto);
+        userRepository.save(user);
+
+        return "User saved successfully";
+    }
+
+    @Transactional(readOnly = true)
+    public List<TicketResponseDto> allTickets(Integer userId) {
+        User user = userRepository
+                .findById(userId)
+                .orElseThrow(UserDoesNotExists::new);
+
+        List<TicketResponseDto> ticketResponses = new ArrayList<>();
+
+        for (Ticket ticket : user.getTicketList()) {
+            TicketResponseDto response =
+                    TicketTransformer.returnTicket(
+                            ticket.getShow(),
+                            ticket
+                    );
+
+            ticketResponses.add(response);
         }
-        return ticketResponseDtos;
+
+        return ticketResponses;
     }
 }

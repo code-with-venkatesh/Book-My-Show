@@ -9,44 +9,59 @@ import com.driver.bookMyShow.Models.Ticket;
 import com.driver.bookMyShow.Repositories.MovieRepository;
 import com.driver.bookMyShow.Repositories.ShowRepository;
 import com.driver.bookMyShow.Transformers.MovieTransformer;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class MovieService {
 
-    @Autowired
-    private MovieRepository movieRepository;
+    private final MovieRepository movieRepository;
+    private final ShowRepository showRepository;
 
-    @Autowired
-    private ShowRepository showRepository;
+    public MovieService(
+            MovieRepository movieRepository,
+            ShowRepository showRepository
+    ) {
+        this.movieRepository = movieRepository;
+        this.showRepository = showRepository;
+    }
 
-    public String addMovie(MovieEntryDto movieEntryDto) throws MovieAlreadyPresentWithSameNameAndLanguage {
-        if(movieRepository.findByMovieName(movieEntryDto.getMovieName()) != null) {
-            if(movieRepository.findByMovieName(movieEntryDto.getMovieName()).getLanguage().equals(movieEntryDto.getLanguage())){
-                throw new MovieAlreadyPresentWithSameNameAndLanguage();
-            }
+    @Transactional
+    public String addMovie(MovieEntryDto movieEntryDto) {
+        boolean movieExists =
+                movieRepository.existsByMovieNameIgnoreCaseAndLanguage(
+                        movieEntryDto.getMovieName(),
+                        movieEntryDto.getLanguage()
+                );
+
+        if (movieExists) {
+            throw new MovieAlreadyPresentWithSameNameAndLanguage();
         }
+
         Movie movie = MovieTransformer.movieDtoToMovie(movieEntryDto);
         movieRepository.save(movie);
+
         return "The movie has been added successfully";
     }
 
-    public Long totalCollection(Integer movieId) throws MovieDoesNotExists {
-        Optional<Movie> movieOpt = movieRepository.findById(movieId);
-        if(movieOpt.isEmpty()) {
+    @Transactional(readOnly = true)
+    public Long totalCollection(Integer movieId) {
+        if (!movieRepository.existsById(movieId)) {
             throw new MovieDoesNotExists();
         }
-        List<Show> showListOfMovie = showRepository.getAllShowsOfMovie(movieId);
-        long ammount = 0;
-        for(Show show : showListOfMovie) {
-            for(Ticket ticket : show.getTicketList()) {
-                ammount += (long)ticket.getTotalTicketsPrice();
+
+        List<Show> shows = showRepository.getAllShowsOfMovie(movieId);
+
+        long amount = 0L;
+
+        for (Show show : shows) {
+            for (Ticket ticket : show.getTicketList()) {
+                amount += ticket.getTotalTicketsPrice();
             }
         }
-        return ammount;
+
+        return amount;
     }
 }
