@@ -220,6 +220,16 @@ Status: ✅ Completed
 - Removed trailing commas from booked-seat values
 - Improved naming and corrected code-quality issues
 
+✅ Constructor injection
+✅ Transaction boundaries
+✅ Repository improvements
+✅ Externalized configuration
+✅ Lombok annotation processing fixed
+✅ H2 isolated test database
+✅ Java 21 runtime alignment
+✅ IntelliJ test passed
+✅ Maven test ready
+
 Status: ✅ Completed
 
 ---
